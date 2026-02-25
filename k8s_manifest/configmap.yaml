@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: hwp-converter-config
+  namespace: hwp-converter
+  labels:
+    app.kubernetes.io/name: hwp-converter
+data:
+  ENV: "production"
+  UVICORN_HOST: "0.0.0.0"
+  UVICORN_PORT: "8000"
+  UVICORN_TIMEOUT_KEEP_ALIVE: "300"

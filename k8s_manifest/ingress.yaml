@@ -1,0 +1,30 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: hwp-converter-ingress
+  namespace: hwp-converter
+  annotations:
+    # ================================================
+    # [수정 필요] 사용하는 Ingress Controller에 맞게 수정
+    # nginx: nginx.ingress.kubernetes.io/*
+    # traefik: traefik.ingress.kubernetes.io/*
+    # ================================================
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "300"
+    # HWP 대용량 파일 업로드 허용 (기본 1m → 50m)
+    nginx.ingress.kubernetes.io/proxy-body-size: "50m"
+spec:
+  # ================================================
+  # [수정 필요] 실제 도메인으로 변경하세요
+  # ================================================
+  rules:
+    - host: hwp-api.your-domain.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: hwp-api-svc
+                port:
+                  number: 8000

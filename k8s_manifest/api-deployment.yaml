@@ -1,0 +1,103 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hwp-api
+  namespace: hwp-converter
+  labels:
+    app: hwp-api
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: hwp-api
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        app: hwp-api
+    spec:
+      serviceAccountName: hwp-converter-sa
+      terminationGracePeriodSeconds: 310  # 변환 타임아웃(300s) + 여유 10s
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+      containers:
+        - name: hwp-api
+          # ================================================
+          # [수정 필요] 실제 레지스트리 주소로 변경하세요
+          # 예: your-registry.com/hwp-converter-api:1.0.0
+          # ================================================
+          image: hwp-converter-api:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8000
+          envFrom:
+            - configMapRef:
+                name: hwp-converter-config
+          resources:
+            requests:
+              memory: "512Mi"
+              cpu: "250m"
+            limits:
+              memory: "2Gi"
+              cpu: "1"
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false  # hwp5html이 임시파일 생성 필요
+            capabilities:
+              drop:
+                - ALL
+          startupProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            failureThreshold: 6
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 3
+          volumeMounts:
+            - name: temp-dir
+              mountPath: /app/temp
+            - name: output-dir
+              mountPath: /app/output
+      volumes:
+        - name: temp-dir
+          emptyDir:
+            sizeLimit: 2Gi
+        - name: output-dir
+          emptyDir:
+            sizeLimit: 2Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: hwp-api-svc
+  namespace: hwp-converter
+spec:
+  selector:
+    app: hwp-api
+  ports:
+    - name: http
+      port: 8000
+      targetPort: http
+  type: ClusterIP

@@ -1,0 +1,121 @@
+# =============================================================================
+# 리소스 정책 (ResourceQuota, LimitRange, HPA, PDB, NetworkPolicy)
+# =============================================================================
+
+# ---------------------------------------------------------------------------
+# ResourceQuota  -  네임스페이스 전체 리소스 상한
+# ---------------------------------------------------------------------------
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: hwp-converter-quota
+  namespace: hwp-converter
+spec:
+  hard:
+    requests.cpu: "4"
+    requests.memory: 8Gi
+    limits.cpu: "8"
+    limits.memory: 16Gi
+    pods: "10"
+
+---
+# ---------------------------------------------------------------------------
+# LimitRange  -  컨테이너별 기본 리소스 제한
+# ---------------------------------------------------------------------------
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: hwp-converter-limits
+  namespace: hwp-converter
+spec:
+  limits:
+    - type: Container
+      default:
+        cpu: "1"
+        memory: 2Gi
+      defaultRequest:
+        cpu: 250m
+        memory: 512Mi
+      max:
+        cpu: "2"
+        memory: 4Gi
+      min:
+        cpu: 100m
+        memory: 128Mi
+
+---
+# ---------------------------------------------------------------------------
+# HorizontalPodAutoscaler  -  자동 스케일링
+# ---------------------------------------------------------------------------
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: hwp-api-hpa
+  namespace: hwp-converter
+  labels:
+    app.kubernetes.io/name: hwp-converter
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: hwp-api
+  minReplicas: 2
+  maxReplicas: 5
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 80
+
+---
+# ---------------------------------------------------------------------------
+# PodDisruptionBudget  -  가용성 보장
+# ---------------------------------------------------------------------------
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: hwp-api-pdb
+  namespace: hwp-converter
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: hwp-api
+
+---
+# ---------------------------------------------------------------------------
+# NetworkPolicy  -  네트워크 격리
+#   - Ingress: 8000 포트만 허용
+#   - Egress: DNS만 허용 (외부 네트워크 차단)
+# ---------------------------------------------------------------------------
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: hwp-converter-netpol
+  namespace: hwp-converter
+spec:
+  podSelector:
+    matchLabels:
+      app: hwp-api
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - ports:
+        - port: 8000
+          protocol: TCP
+  egress:
+    # DNS 조회 허용
+    - ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP

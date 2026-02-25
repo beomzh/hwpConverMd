@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: hwp-converter
+  labels:
+    app.kubernetes.io/name: hwp-converter
+    app.kubernetes.io/part-of: hwp-converter
