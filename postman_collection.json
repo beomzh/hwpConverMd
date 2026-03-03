@@ -1,0 +1,278 @@
+{
+  "info": {
+    "name": "HWP to Markdown API",
+    "description": "HWP/HWPX 파일을 Markdown으로 변환하는 REST API\n\n## 사용법\n1. 환경변수 `base_url`을 서버 주소로 설정 (기본: http://localhost:8000)\n2. 각 요청의 Body에서 파일을 선택\n3. Send 클릭",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "_exporter_id": "hwp-converter"
+  },
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:8000",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "Health",
+      "item": [
+        {
+          "name": "Health Check",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/",
+              "host": ["{{base_url}}"],
+              "path": [""]
+            },
+            "description": "서비스 상태를 확인합니다.\n\n정상 응답: `{\"status\": \"ok\", \"service\": \"hwp-to-markdown\"}`"
+          },
+          "response": [
+            {
+              "name": "정상 응답",
+              "originalRequest": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/",
+                  "host": ["{{base_url}}"],
+                  "path": [""]
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"status\": \"ok\",\n  \"service\": \"hwp-to-markdown\"\n}"
+            }
+          ]
+        }
+      ],
+      "description": "서비스 상태 확인 API"
+    },
+    {
+      "name": "Convert",
+      "item": [
+        {
+          "name": "HWP/HWPX → Markdown (JSON 응답)",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "file",
+                  "description": "변환할 HWP 또는 HWPX 파일 (.hwp, .hwpx)",
+                  "type": "file",
+                  "src": ""
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/convert",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "convert"]
+            },
+            "description": "HWP 또는 HWPX 파일을 업로드하면 JSON으로 Markdown 변환 결과를 반환합니다.\n\n### 요청\n- **Content-Type**: multipart/form-data\n- **file**: .hwp 또는 .hwpx 파일\n\n### 응답\n```json\n{\n  \"filename\": \"문서.hwp\",\n  \"markdown\": \"# 제목\\n\\n본문...\"\n}\n```"
+          },
+          "response": [
+            {
+              "name": "변환 성공",
+              "originalRequest": {
+                "method": "POST",
+                "header": [],
+                "body": {
+                  "mode": "formdata",
+                  "formdata": [
+                    {
+                      "key": "file",
+                      "type": "file",
+                      "src": "test.hwp"
+                    }
+                  ]
+                },
+                "url": {
+                  "raw": "{{base_url}}/api/v1/convert",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "v1", "convert"]
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json; charset=utf-8"
+                }
+              ],
+              "body": "{\n  \"filename\": \"보고서.hwp\",\n  \"markdown\": \"# 보고서 제목\\n\\n## 1. 개요\\n\\n본문 내용입니다.\\n\\n## 2. 세부사항\\n\\n| 항목 | 설명 |\\n| --- | --- |\\n| A | 내용 A |\\n| B | 내용 B |\"\n}"
+            },
+            {
+              "name": "파일 형식 오류 (400)",
+              "originalRequest": {
+                "method": "POST",
+                "header": [],
+                "body": {
+                  "mode": "formdata",
+                  "formdata": [
+                    {
+                      "key": "file",
+                      "type": "file",
+                      "src": "test.pdf"
+                    }
+                  ]
+                },
+                "url": {
+                  "raw": "{{base_url}}/api/v1/convert",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "v1", "convert"]
+                }
+              },
+              "status": "Bad Request",
+              "code": 400,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"detail\": \"HWP 또는 HWPX 파일만 업로드 가능합니다.\"\n}"
+            },
+            {
+              "name": "변환 실패 (500)",
+              "originalRequest": {
+                "method": "POST",
+                "header": [],
+                "body": {
+                  "mode": "formdata",
+                  "formdata": [
+                    {
+                      "key": "file",
+                      "type": "file",
+                      "src": "broken.hwp"
+                    }
+                  ]
+                },
+                "url": {
+                  "raw": "{{base_url}}/api/v1/convert",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "v1", "convert"]
+                }
+              },
+              "status": "Internal Server Error",
+              "code": 500,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"detail\": \"HWP 변환 실패: hwp5html 실행 오류\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "HWP/HWPX → Markdown (Raw Text 응답)",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "file",
+                  "description": "변환할 HWP 또는 HWPX 파일 (.hwp, .hwpx)",
+                  "type": "file",
+                  "src": ""
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/convert/raw",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "convert", "raw"]
+            },
+            "description": "HWP 또는 HWPX 파일을 업로드하면 순수 Markdown 텍스트로 반환합니다.\n\n### 요청\n- **Content-Type**: multipart/form-data\n- **file**: .hwp 또는 .hwpx 파일\n\n### 응답\n- **Content-Type**: text/markdown; charset=utf-8\n- Markdown 텍스트가 그대로 반환됩니다.\n\n### 용도\n- 결과를 `.md` 파일로 바로 저장할 때\n- Markdown 렌더러에 직접 전달할 때"
+          },
+          "response": [
+            {
+              "name": "변환 성공 (Raw Markdown)",
+              "originalRequest": {
+                "method": "POST",
+                "header": [],
+                "body": {
+                  "mode": "formdata",
+                  "formdata": [
+                    {
+                      "key": "file",
+                      "type": "file",
+                      "src": "test.hwp"
+                    }
+                  ]
+                },
+                "url": {
+                  "raw": "{{base_url}}/api/v1/convert/raw",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "v1", "convert", "raw"]
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "text",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "text/markdown; charset=utf-8"
+                }
+              ],
+              "body": "# 보고서 제목\n\n## 1. 개요\n\n본문 내용입니다.\n\n## 2. 세부사항\n\n| 항목 | 설명 |\n| --- | --- |\n| A | 내용 A |\n| B | 내용 B |"
+            },
+            {
+              "name": "파일 형식 오류 (400)",
+              "originalRequest": {
+                "method": "POST",
+                "header": [],
+                "body": {
+                  "mode": "formdata",
+                  "formdata": [
+                    {
+                      "key": "file",
+                      "type": "file",
+                      "src": "test.txt"
+                    }
+                  ]
+                },
+                "url": {
+                  "raw": "{{base_url}}/api/v1/convert/raw",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "v1", "convert", "raw"]
+                }
+              },
+              "status": "Bad Request",
+              "code": 400,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"detail\": \"HWP 또는 HWPX 파일만 업로드 가능합니다.\"\n}"
+            }
+          ]
+        }
+      ],
+      "description": "HWP/HWPX 파일을 Markdown으로 변환하는 API"
+    }
+  ]
+}

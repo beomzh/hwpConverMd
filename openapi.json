@@ -1,0 +1,471 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "HWP to Markdown API",
+    "description": "HWP/HWPX 파일을 Markdown으로 변환하는 REST API입니다.\n\n## 기능\n- **HWP → Markdown**: 한글(HWP) 파일을 Markdown으로 변환\n- **HWPX → Markdown**: 한글(HWPX) 파일을 Markdown으로 변환\n- **JSON 응답**: 파일명과 Markdown 텍스트를 JSON으로 반환\n- **Raw 텍스트 응답**: 순수 Markdown 텍스트를 `text/markdown`으로 반환\n\n## 지원 형식\n| 확장자 | 형식 | 설명 |\n| --- | --- | --- |\n| `.hwp` | HWP | 한글 워드프로세서 바이너리 형식 |\n| `.hwpx` | HWPX | 한글 워드프로세서 XML 형식 (OWPML) |\n\n## 사용 방법\n1. Postman 또는 API Dog에서 `openapi.json`을 import하여 테스트\n2. 파일을 `multipart/form-data`로 업로드\n3. 변환 결과를 JSON 또는 Raw 텍스트로 수신",
+    "contact": {
+      "name": "HWP Converter API"
+    },
+    "license": {
+      "name": "MIT"
+    },
+    "version": "1.0.0"
+  },
+  "servers": [
+    {
+      "url": "http://localhost:8000",
+      "description": "로컬 개발 서버"
+    },
+    {
+      "url": "http://0.0.0.0:8000",
+      "description": "Docker 컨테이너 서버"
+    }
+  ],
+  "paths": {
+    "/api/v1/convert": {
+      "post": {
+        "tags": [
+          "convert"
+        ],
+        "summary": "HWP/HWPX → Markdown 변환 (JSON)",
+        "description": "HWP 또는 HWPX 파일을 업로드하면 Markdown으로 변환하여 JSON 형태로 반환합니다.\n\n- **지원 형식**: `.hwp`, `.hwpx`\n- **응답**: `{filename, markdown}` JSON 객체\n- **테이블/서식**: 원본 문서의 표, 제목, 볼드/이탤릭 등을 Markdown으로 변환",
+        "operationId": "convertFileToJson",
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_convertFileToJson"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "변환 성공",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConvertResponse"
+                },
+                "example": {
+                  "filename": "보고서.hwp",
+                  "markdown": "# 보고서 제목\n\n## 1. 개요\n\n본문 내용입니다.\n\n## 2. 세부사항\n\n| 항목 | 설명 |\n| --- | --- |\n| A | 내용 A |"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "지원하지 않는 파일 형식",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "example": {
+                  "detail": "HWP 또는 HWPX 파일만 업로드 가능합니다."
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "변환 중 서버 에러 발생",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "example": {
+                  "detail": "HWP 변환 실패: hwp5html 실행 오류"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/convert/raw": {
+      "post": {
+        "tags": [
+          "convert"
+        ],
+        "summary": "HWP/HWPX → Markdown 변환 (Raw Text)",
+        "description": "HWP 또는 HWPX 파일을 업로드하면 순수 Markdown 텍스트로 반환합니다.\n\n- **지원 형식**: `.hwp`, `.hwpx`\n- **응답**: `text/markdown` Content-Type의 순수 텍스트\n- **용도**: Markdown 파일로 바로 저장하거나, Markdown 렌더러에 직접 전달할 때 유용",
+        "operationId": "convertFileToRaw",
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_convertFileToRaw"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "변환 성공 — 순수 Markdown 텍스트 반환",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "text/markdown": {
+                "schema": {
+                  "type": "string"
+                },
+                "example": "# 보고서 제목\n\n## 1. 개요\n\n본문 내용입니다.\n\n## 2. 세부사항\n\n| 항목 | 설명 |\n| --- | --- |\n| A | 내용 A |"
+              }
+            }
+          },
+          "400": {
+            "description": "지원하지 않는 파일 형식",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "example": {
+                  "detail": "HWP 또는 HWPX 파일만 업로드 가능합니다."
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "변환 중 서버 에러 발생",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "example": {
+                  "detail": "HWPX 파싱 실패: section 파일 없음"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/convert/base64": {
+      "post": {
+        "tags": [
+          "convert"
+        ],
+        "summary": "HWP/HWPX → Markdown 변환 (Base64 JSON)",
+        "description": "Base64로 인코딩된 HWP/HWPX 파일을 JSON으로 전송하여 Markdown으로 변환합니다.\n\n- **용도**: Flowise Custom Tool, n8n, Zapier 등 multipart/form-data를 지원하지 않는 외부 시스템 연동\n- **지원 형식**: `.hwp`, `.hwpx`\n- **요청**: `{filename, content_base64}` JSON 객체\n- **응답**: `{filename, markdown}` JSON 객체",
+        "operationId": "convertFileBase64",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Base64ConvertRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "변환 성공",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConvertResponse"
+                },
+                "example": {
+                  "filename": "보고서.hwp",
+                  "markdown": "# 보고서 제목\n\n## 1. 개요\n\n본문 내용입니다."
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "잘못된 요청 (파일 형식 오류 또는 Base64 디코딩 실패)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "examples": {
+                  "format_error": {
+                    "summary": "파일 형식 오류",
+                    "value": {
+                      "detail": "HWP 또는 HWPX 파일만 업로드 가능합니다."
+                    }
+                  },
+                  "base64_error": {
+                    "summary": "Base64 디코딩 실패",
+                    "value": {
+                      "detail": "Base64 디코딩에 실패했습니다."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "변환 중 서버 에러 발생",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "example": {
+                  "detail": "HWP 변환 실패: hwp5html 실행 오류"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/": {
+      "get": {
+        "tags": [
+          "health"
+        ],
+        "summary": "서비스 상태 확인 (Health Check)",
+        "description": "서비스가 정상 동작 중인지 확인합니다. Kubernetes liveness/readiness probe에서 사용됩니다.",
+        "operationId": "healthCheck",
+        "responses": {
+          "200": {
+            "description": "서비스 정상 동작",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthResponse"
+                },
+                "example": {
+                  "status": "ok",
+                  "service": "hwp-to-markdown"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Base64ConvertRequest": {
+        "properties": {
+          "filename": {
+            "type": "string",
+            "title": "Filename",
+            "description": "원본 파일명 (.hwp 또는 .hwpx 확장자 필수)"
+          },
+          "content_base64": {
+            "type": "string",
+            "title": "Content Base64",
+            "description": "파일 내용을 Base64로 인코딩한 문자열"
+          }
+        },
+        "type": "object",
+        "required": [
+          "filename",
+          "content_base64"
+        ],
+        "title": "Base64ConvertRequest",
+        "description": "Base64 인코딩된 HWP/HWPX 파일 변환 요청\n\nFlowise, n8n 등 외부 시스템에서 JSON으로 파일을 전송할 때 사용합니다.",
+        "example": {
+          "content_base64": "0M8R4KGxGuEAAAAA...",
+          "filename": "보고서.hwp"
+        }
+      },
+      "Body_convertFileToJson": {
+        "properties": {
+          "file": {
+            "type": "string",
+            "format": "binary",
+            "title": "File",
+            "description": "변환할 HWP 또는 HWPX 파일 (.hwp, .hwpx)"
+          }
+        },
+        "type": "object",
+        "required": [
+          "file"
+        ],
+        "title": "Body_convertFileToJson"
+      },
+      "Body_convertFileToRaw": {
+        "properties": {
+          "file": {
+            "type": "string",
+            "format": "binary",
+            "title": "File",
+            "description": "변환할 HWP 또는 HWPX 파일 (.hwp, .hwpx)"
+          }
+        },
+        "type": "object",
+        "required": [
+          "file"
+        ],
+        "title": "Body_convertFileToRaw"
+      },
+      "ConvertResponse": {
+        "properties": {
+          "filename": {
+            "type": "string",
+            "title": "Filename",
+            "description": "업로드한 원본 파일명"
+          },
+          "markdown": {
+            "type": "string",
+            "title": "Markdown",
+            "description": "변환된 Markdown 텍스트"
+          }
+        },
+        "type": "object",
+        "required": [
+          "filename",
+          "markdown"
+        ],
+        "title": "ConvertResponse",
+        "description": "HWP/HWPX → Markdown 변환 결과 (JSON)",
+        "example": {
+          "filename": "보고서.hwp",
+          "markdown": "# 보고서 제목\n\n## 1. 개요\n\n본문 내용입니다.\n\n## 2. 세부사항\n\n| 항목 | 설명 |\n| --- | --- |\n| A | 내용 A |\n| B | 내용 B |"
+        }
+      },
+      "ErrorResponse": {
+        "properties": {
+          "detail": {
+            "type": "string",
+            "title": "Detail",
+            "description": "에러 메시지"
+          }
+        },
+        "type": "object",
+        "required": [
+          "detail"
+        ],
+        "title": "ErrorResponse",
+        "description": "에러 응답",
+        "example": {
+          "detail": "HWP 또는 HWPX 파일만 업로드 가능합니다."
+        }
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
+      },
+      "HealthResponse": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "title": "Status",
+            "description": "서비스 상태"
+          },
+          "service": {
+            "type": "string",
+            "title": "Service",
+            "description": "서비스 이름"
+          }
+        },
+        "type": "object",
+        "required": [
+          "status",
+          "service"
+        ],
+        "title": "HealthResponse",
+        "description": "서비스 상태 확인 응답",
+        "example": {
+          "service": "hwp-to-markdown",
+          "status": "ok"
+        }
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": {
+            "type": "string",
+            "title": "Message"
+          },
+          "type": {
+            "type": "string",
+            "title": "Error Type"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "ctx": {
+            "type": "object",
+            "title": "Context"
+          }
+        },
+        "type": "object",
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError"
+      }
+    }
+  },
+  "tags": [
+    {
+      "name": "health",
+      "description": "서비스 상태 확인"
+    },
+    {
+      "name": "convert",
+      "description": "HWP/HWPX 파일을 Markdown으로 변환하는 API"
+    }
+  ]
+}
