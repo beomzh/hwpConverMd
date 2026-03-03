@@ -77,3 +77,15 @@ app.include_router(router, prefix="/api/v1", tags=["convert"])
 )
 def health_check():
     return {"status": "ok", "service": "hwp-to-markdown"}
+
+
+@app.get(
+    "/health",
+    response_model=HealthResponse,
+    summary="k8s Probe 전용 Health Check",
+    description="k8s liveness/readiness probe 전용 경량 엔드포인트. 변환 워커와 무관하게 즉시 응답합니다.",
+    operation_id="k8sHealthCheck",
+    tags=["health"],
+)
+def k8s_health():
+    return {"status": "ok", "service": "hwp-to-markdown"}
