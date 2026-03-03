@@ -1,5 +1,5 @@
+import asyncio
 import re
-import subprocess
 import tempfile
 from pathlib import Path
 
@@ -11,7 +11,7 @@ from app.core.exceptions import HwpConversionError
 
 class HwpConverter:
     @staticmethod
-    def convert(hwp_path: str) -> str:
+    async def convert(hwp_path: str) -> str:
         """HWP 파일을 Markdown 문자열로 변환한다.
 
         hwp5html로 HWP->HTML 변환 후 markdownify로 HTML->MD 변환.
@@ -19,21 +19,28 @@ class HwpConverter:
         """
         with tempfile.TemporaryDirectory() as output_dir:
             try:
-                subprocess.run(
-                    ["hwp5html", "--output", output_dir, hwp_path],
-                    check=True,
-                    capture_output=True,
-                    text=True,
-                    timeout=300,
+                proc = await asyncio.create_subprocess_exec(
+                    "hwp5html", "--output", output_dir, hwp_path,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
                 )
+                stdout, stderr = await asyncio.wait_for(
+                    proc.communicate(), timeout=300
+                )
+                if proc.returncode != 0:
+                    raise HwpConversionError(
+                        f"hwp5html 변환 실패: {stderr.decode()}"
+                    )
             except FileNotFoundError:
                 raise HwpConversionError(
                     "hwp5html 명령어를 찾을 수 없습니다. "
                     "pyhwp를 설치하세요: pip install pyhwp"
                 )
-            except subprocess.CalledProcessError as e:
-                raise HwpConversionError(f"hwp5html 변환 실패: {e.stderr}")
-            except subprocess.TimeoutExpired:
+            except asyncio.TimeoutError:
+                try:
+                    proc.kill()
+                except Exception:
+                    pass
                 raise HwpConversionError("hwp5html 변환 시간 초과 (300초)")
 
             html_file = Path(output_dir) / "index.xhtml"

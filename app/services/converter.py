@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from pathlib import Path
 
@@ -36,7 +37,7 @@ class ConverterService:
         return None
 
     @staticmethod
-    def convert(file_path: str) -> str:
+    async def convert(file_path: str) -> str:
         ext = Path(file_path).suffix.lower()
 
         # 확장자 1차 검증: .hwp / .hwpx 만 허용
@@ -59,6 +60,9 @@ class ConverterService:
         fmt = detected or ext.lstrip(".")
 
         if fmt == "hwp":
-            return HwpConverter.convert(file_path)
-        else:  # hwpx
-            return HwpxConverter.convert(file_path)
+            return await HwpConverter.convert(file_path)
+        else:  # hwpx (CPU-bound, executor에서 실행)
+            loop = asyncio.get_event_loop()
+            return await loop.run_in_executor(
+                None, HwpxConverter.convert, file_path
+            )

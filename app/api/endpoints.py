@@ -80,7 +80,7 @@ async def convert_file(
     temp_path = save_temp_file(content, ext)
 
     try:
-        markdown_result = ConverterService.convert(temp_path)
+        markdown_result = await ConverterService.convert(temp_path)
         md_filename = save_output_file(markdown_result, file.filename)
         return {
             "filename": file.filename,
@@ -156,7 +156,7 @@ async def convert_file_raw(
     temp_path = save_temp_file(content, ext)
 
     try:
-        markdown_result = ConverterService.convert(temp_path)
+        markdown_result = await ConverterService.convert(temp_path)
         return PlainTextResponse(
             content=markdown_result,
             media_type="text/markdown; charset=utf-8",
@@ -257,7 +257,7 @@ async def convert_file_base64(request: Base64ConvertRequest):
     temp_path = save_temp_file(content, ext)
 
     try:
-        markdown_result = ConverterService.convert(temp_path)
+        markdown_result = await ConverterService.convert(temp_path)
         md_filename = save_output_file(markdown_result, request.filename)
         return {
             "filename": request.filename,
