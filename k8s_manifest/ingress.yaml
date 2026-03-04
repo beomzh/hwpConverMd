@@ -9,8 +9,10 @@ metadata:
     # nginx: nginx.ingress.kubernetes.io/*
     # traefik: traefik.ingress.kubernetes.io/*
     # ================================================
-    nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
-    nginx.ingress.kubernetes.io/proxy-send-timeout: "300"
+    # hwp5html 타임아웃(600초) + 후처리 여유 = 660초
+    # 대용량 HWP(6MB+)는 변환에 4~10분 소요 가능
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "660"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "660"
     # HWP 대용량 파일 업로드 허용 (기본 1m → 50m)
     nginx.ingress.kubernetes.io/proxy-body-size: "50m"
 spec:
