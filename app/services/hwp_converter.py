@@ -13,7 +13,7 @@ from app.core.exceptions import HwpConversionError
 logger = logging.getLogger(__name__)
 
 # hwp5html 타임아웃 (초), 환경변수로 설정 가능, 기본 180초
-HWP5HTML_TIMEOUT = int(os.environ.get("HWP5HTML_TIMEOUT", "300"))
+HWP5HTML_TIMEOUT = int(os.environ.get("HWP5HTML_TIMEOUT", "600"))
 
 
 class HwpConverter:
