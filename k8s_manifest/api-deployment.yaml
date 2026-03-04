@@ -21,7 +21,7 @@ spec:
         app: hwp-api
     spec:
       serviceAccountName: hwp-converter-sa
-      terminationGracePeriodSeconds: 310  # 변환 타임아웃(300s) + 여유 10s
+      terminationGracePeriodSeconds: 610  # 변환 타임아웃(600s) + 여유 10s
       securityContext:
         runAsNonRoot: true
         runAsUser: 1000
@@ -74,7 +74,7 @@ spec:
               port: http
             periodSeconds: 15
             timeoutSeconds: 5
-            failureThreshold: 24
+            failureThreshold: 48
           volumeMounts:
             - name: temp-dir
               mountPath: /app/temp

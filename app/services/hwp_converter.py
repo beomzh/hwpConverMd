@@ -1,4 +1,6 @@
 import asyncio
+import logging
+import os
 import re
 import tempfile
 from pathlib import Path
@@ -8,6 +10,11 @@ from markdownify import markdownify as md
 
 from app.core.exceptions import HwpConversionError
 
+logger = logging.getLogger(__name__)
+
+# hwp5html 타임아웃 (초), 환경변수로 설정 가능, 기본 180초
+HWP5HTML_TIMEOUT = int(os.environ.get("HWP5HTML_TIMEOUT", "300"))
+
 
 class HwpConverter:
     @staticmethod
@@ -16,8 +23,14 @@ class HwpConverter:
 
         hwp5html로 HWP->HTML 변환 후 markdownify로 HTML->MD 변환.
         테이블은 커스텀 파서로 별도 처리한다.
+        타임아웃 시 부분 출력이 있으면 그것을 사용한다.
         """
+        file_size = Path(hwp_path).stat().st_size
+        file_size_mb = round(file_size / (1024 * 1024), 1)
+        logger.info(f"HWP 변환 시작: {hwp_path} ({file_size_mb}MB)")
+
         with tempfile.TemporaryDirectory() as output_dir:
+            timed_out = False
             try:
                 proc = await asyncio.create_subprocess_exec(
                     "hwp5html", "--output", output_dir, hwp_path,
@@ -25,11 +38,11 @@ class HwpConverter:
                     stderr=asyncio.subprocess.PIPE,
                 )
                 stdout, stderr = await asyncio.wait_for(
-                    proc.communicate(), timeout=300
+                    proc.communicate(), timeout=HWP5HTML_TIMEOUT
                 )
                 if proc.returncode != 0:
                     raise HwpConversionError(
-                        f"hwp5html 변환 실패: {stderr.decode()}"
+                        f"hwp5html 변환 실패: {stderr.decode()[:500]}"
                     )
             except FileNotFoundError:
                 raise HwpConversionError(
@@ -37,26 +50,42 @@ class HwpConverter:
                     "pyhwp를 설치하세요: pip install pyhwp"
                 )
             except asyncio.TimeoutError:
+                timed_out = True
                 try:
                     proc.kill()
+                    await proc.wait()
                 except Exception:
                     pass
-                raise HwpConversionError("hwp5html 변환 시간 초과 (300초)")
-
-            html_file = Path(output_dir) / "index.xhtml"
-            if not html_file.exists():
-                html_file = Path(output_dir) / "index.html"
-            if not html_file.exists():
-                html_files = list(Path(output_dir).glob("*.xhtml")) + list(
-                    Path(output_dir).glob("*.html")
+                logger.warning(
+                    f"hwp5html 타임아웃 ({HWP5HTML_TIMEOUT}초): {hwp_path} "
+                    f"({file_size_mb}MB) — 부분 출력 확인 중..."
                 )
-                if html_files:
-                    html_file = html_files[0]
-                else:
+
+            # 타임아웃이어도 부분 출력이 있으면 사용
+            html_file = _find_html_output(output_dir)
+            if html_file is None:
+                if timed_out:
                     raise HwpConversionError(
-                        f"hwp5html 출력에서 HTML 파일을 찾을 수 없습니다: "
-                        f"{list(Path(output_dir).iterdir())}"
+                        f"hwp5html 변환 시간 초과 ({HWP5HTML_TIMEOUT}초), "
+                        f"부분 출력도 없음 ({file_size_mb}MB)"
                     )
+                raise HwpConversionError(
+                    f"hwp5html 출력에서 HTML 파일을 찾을 수 없습니다: "
+                    f"{list(Path(output_dir).iterdir())}"
+                )
+
+            html_size = html_file.stat().st_size
+            if html_size == 0:
+                raise HwpConversionError(
+                    f"hwp5html 출력이 빈 파일입니다 ({file_size_mb}MB). "
+                    f"이 HWP 파일을 변환할 수 없습니다."
+                )
+
+            if timed_out:
+                logger.info(
+                    f"타임아웃이지만 부분 출력 사용: {html_file.name} "
+                    f"({html_size} bytes)"
+                )
 
             html_content = html_file.read_text(encoding="utf-8")
 
@@ -87,6 +116,22 @@ class HwpConverter:
             markdown_text = _postprocess(markdown_text)
 
             return markdown_text.strip()
+
+
+def _find_html_output(output_dir: str):
+    """hwp5html 출력 디렉토리에서 HTML 파일을 찾는다.
+
+    Returns:
+        Path 객체 또는 None
+    """
+    for name in ("index.xhtml", "index.html"):
+        p = Path(output_dir) / name
+        if p.exists():
+            return p
+    html_files = list(Path(output_dir).glob("*.xhtml")) + list(
+        Path(output_dir).glob("*.html")
+    )
+    return html_files[0] if html_files else None
 
 
 def _parse_css_backgrounds(css: str) -> dict:

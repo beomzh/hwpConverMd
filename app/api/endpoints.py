@@ -1,5 +1,6 @@
 import base64
 import logging
+import os
 from pathlib import Path
 
 from fastapi import APIRouter, File, HTTPException, UploadFile
@@ -13,6 +14,25 @@ from app.services.converter import ConverterService
 from app.utils.file_manager import OUTPUT_DIR, cleanup_files, save_output_file, save_temp_file
 
 router = APIRouter()
+
+# 최대 업로드 파일 크기 (환경변수로 설정 가능, 기본 100MB)
+MAX_UPLOAD_SIZE = int(os.environ.get("MAX_UPLOAD_SIZE_MB", "100")) * 1024 * 1024
+
+
+def _check_file_size(size: int, filename: str) -> None:
+    """파일 크기를 검증하고 초과 시 413 에러를 발생시킨다."""
+    if size == 0:
+        raise HTTPException(
+            status_code=400,
+            detail=f"빈 파일입니다: {filename} (0 bytes)",
+        )
+    if size > MAX_UPLOAD_SIZE:
+        max_mb = MAX_UPLOAD_SIZE // (1024 * 1024)
+        file_mb = round(size / (1024 * 1024), 1)
+        raise HTTPException(
+            status_code=413,
+            detail=f"파일 크기 초과: {filename} ({file_mb}MB > {max_mb}MB 제한)",
+        )
 
 
 @router.post(
@@ -77,6 +97,7 @@ async def convert_file(
         )
 
     content = await file.read()
+    _check_file_size(len(content), file.filename)
     temp_path = save_temp_file(content, ext)
 
     try:
@@ -153,6 +174,7 @@ async def convert_file_raw(
         )
 
     content = await file.read()
+    _check_file_size(len(content), file.filename)
     temp_path = save_temp_file(content, ext)
 
     try:
@@ -254,6 +276,7 @@ async def convert_file_base64(request: Base64ConvertRequest):
             detail="Base64 디코딩에 실패했습니다.",
         )
 
+    _check_file_size(len(content), request.filename)
     temp_path = save_temp_file(content, ext)
 
     try:
