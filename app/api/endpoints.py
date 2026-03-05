@@ -2,6 +2,7 @@ import base64
 import logging
 import os
 from pathlib import Path
+from urllib.parse import quote
 
 from fastapi import APIRouter, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse, PlainTextResponse
@@ -306,9 +307,13 @@ async def download_markdown(filename: str):
     file_path = OUTPUT_DIR / safe_name
     if not file_path.exists():
         raise HTTPException(status_code=404, detail="파일을 찾을 수 없습니다.")
+    # RFC 5987: 한글 등 비ASCII 파일명은 filename*=UTF-8'' 인코딩 필수
+    encoded_name = quote(safe_name)
     return FileResponse(
         path=str(file_path),
         filename=safe_name,
         media_type="text/markdown; charset=utf-8",
-        headers={"Content-Disposition": f'attachment; filename="{safe_name}"'},
+        headers={
+            "Content-Disposition": f"attachment; filename=\"{encoded_name}\"; filename*=UTF-8''{encoded_name}"
+        },
     )
