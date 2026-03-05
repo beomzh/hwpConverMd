@@ -308,10 +308,10 @@ async def download_markdown(filename: str):
     if not file_path.exists():
         raise HTTPException(status_code=404, detail="파일을 찾을 수 없습니다.")
     # RFC 5987: 한글 등 비ASCII 파일명은 filename*=UTF-8'' 인코딩 필수
+    # FileResponse의 filename 파라미터를 제거해야 Starlette가 한글로 덮어쓰지 않음
     encoded_name = quote(safe_name)
     return FileResponse(
         path=str(file_path),
-        filename=safe_name,
         media_type="text/markdown; charset=utf-8",
         headers={
             "Content-Disposition": f"attachment; filename=\"{encoded_name}\"; filename*=UTF-8''{encoded_name}"
