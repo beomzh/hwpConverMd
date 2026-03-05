@@ -1,7 +1,54 @@
 # hwpConverMd
 
-HWP/HWPX 파일을 Markdown(.md)으로 변환하는 도구입니다.
-REST API 서버와 CLI 두 가지 방식을 지원합니다.
+HWP/HWPX 파일을 Markdown(.md)으로 변환하는 REST API 서버입니다.
+CLI, Docker Compose, Kubernetes 배포를 모두 지원하며, MCP 서버 및 Flowise와 연동하여 LLM 기반 문서 처리 파이프라인을 구성할 수 있습니다.
+
+---
+
+## 아키텍처
+
+```
+ ┌──────────────────────────────────────────────────────────┐
+ │  Flowise (LLM Orchestrator)                              │
+ │  ┌────────────┐    ┌──────────────┐    ┌──────────────┐  │
+ │  │ Chat Input │───▶│ buildChatflow│───▶│CustomFunction│  │
+ │  │ (HWP 업로드)│    │ (base64 추출)│    │ (MCP 호출)   │  │
+ │  └────────────┘    └──────────────┘    └──────┬───────┘  │
+ └───────────────────────────────────────────────┼──────────┘
+                                                 │ JSON-RPC
+                                                 ▼
+                                    ┌────────────────────┐
+                                    │ hwpConverMdMCP     │
+                                    │ (MCP Server :3000) │
+                                    └────────┬───────────┘
+                                             │ multipart/form-data
+                                             ▼
+                                    ┌────────────────────┐
+                                    │ hwpConverMd        │
+                                    │ (FastAPI :8000)    │  ◀── 이 프로젝트
+                                    └────────────────────┘
+```
+
+### 변환 엔진 구조
+
+```
+ HWP 파일 (.hwp)
+   │
+   ├─ 1차: HwpFastConverter (고속)
+   │    pyhwp xmlevents → XML → ElementTree → Markdown
+   │    ▸ XSLT 건너뛰고 내부 XML 직접 파싱
+   │    ▸ 대용량 파일에서 10배 이상 빠름
+   │
+   └─ 2차: HwpConverter (폴백)
+        hwp5html → HTML → BeautifulSoup → markdownify → Markdown
+        ▸ 고속 변환 실패 시 자동 폴백
+
+ HWPX 파일 (.hwpx)
+   │
+   └─ HwpxConverter
+        ZIP → XML 직접 파싱 → Markdown
+        ▸ 추가 도구 불필요
+```
 
 ---
 
@@ -57,26 +104,38 @@ docker compose up --build
 | 메서드 | 경로 | 설명 | 응답 형식 |
 |--------|------|------|-----------|
 | GET | `/` | 헬스체크 | JSON |
-| POST | `/api/v1/convert` | HWP/HWPX → Markdown (JSON) | JSON |
-| POST | `/api/v1/convert/raw` | HWP/HWPX → Markdown (텍스트) | text/markdown |
+| GET | `/health` | 헬스체크 (K8s probe용) | JSON |
+| POST | `/api/v1/convert` | HWP/HWPX -> Markdown (JSON) | JSON (`filename`, `markdown`, `download_url`) |
+| POST | `/api/v1/convert/raw` | HWP/HWPX -> Markdown (텍스트) | text/markdown |
+| POST | `/api/v1/convert/base64` | Base64 HWP -> Markdown (JSON) | JSON (`filename`, `markdown`, `download_url`) |
+| GET | `/api/v1/download/{filename}` | 변환된 Markdown 파일 다운로드 | file (text/markdown) |
 
 ### 파일 업로드 방법
 
 #### 방법 1: curl 명령어
 
 ```bash
-# JSON 응답 (filename + markdown 필드)
+# JSON 응답 (filename + markdown + download_url)
 curl -X POST http://localhost:8000/api/v1/convert \
-  -F "file=@tests/규격서_OPENMARU COP_오픈마루.hwp"
+  -F "file=@document.hwp"
 
 # 순수 Markdown 텍스트 응답
 curl -X POST http://localhost:8000/api/v1/convert/raw \
-  -F "file=@tests/규격서_OPENMARU COP_오픈마루.hwp"
+  -F "file=@document.hwp"
 
 # 결과를 파일로 저장
 curl -X POST http://localhost:8000/api/v1/convert/raw \
-  -F "file=@tests/규격서_OPENMARU COP_오픈마루.hwp" \
+  -F "file=@document.hwp" \
   -o output/result.md
+
+# Base64 JSON 변환 (Flowise, n8n 등 외부 시스템 연동용)
+B64=$(base64 -i document.hwp | tr -d '\n')
+curl -X POST http://localhost:8000/api/v1/convert/base64 \
+  -H "Content-Type: application/json" \
+  -d "{\"filename\":\"document.hwp\",\"content_base64\":\"$B64\"}"
+
+# 변환된 파일 다운로드
+curl -O http://localhost:8000/api/v1/download/document_abc123.md
 ```
 
 #### 방법 2: Python requests
@@ -85,7 +144,7 @@ curl -X POST http://localhost:8000/api/v1/convert/raw \
 import requests
 
 # JSON 응답
-with open("tests/규격서_OPENMARU COP_오픈마루.hwp", "rb") as f:
+with open("document.hwp", "rb") as f:
     response = requests.post(
         "http://localhost:8000/api/v1/convert",
         files={"file": f},
@@ -93,31 +152,14 @@ with open("tests/규격서_OPENMARU COP_오픈마루.hwp", "rb") as f:
 
 data = response.json()
 print(data["markdown"])
+print(data["download_url"])  # /api/v1/download/document_abc123.md
 
 # 파일로 저장
 with open("output/result.md", "w", encoding="utf-8") as out:
     out.write(data["markdown"])
 ```
 
-#### 방법 3: httpx (비동기)
-
-```python
-import httpx
-import asyncio
-
-async def convert():
-    async with httpx.AsyncClient() as client:
-        with open("tests/규격서_OPENMARU COP_오픈마루.hwp", "rb") as f:
-            response = await client.post(
-                "http://localhost:8000/api/v1/convert/raw",
-                files={"file": f},
-            )
-        print(response.text)
-
-asyncio.run(convert())
-```
-
-#### 방법 4: Swagger UI (웹 브라우저)
+#### 방법 3: Swagger UI (웹 브라우저)
 
 1. 서버 시작 후 http://localhost:8000/docs 접속
 2. `POST /api/v1/convert` 엔드포인트 클릭
@@ -132,10 +174,10 @@ asyncio.run(convert())
 
 ```bash
 # 표준출력으로 출력
-python -m app tests/규격서_OPENMARU\ COP_오픈마루.hwp
+python -m app document.hwp
 
 # 파일로 저장
-python -m app tests/규격서_OPENMARU\ COP_오픈마루.hwp -o output/result.md
+python -m app document.hwp -o output/result.md
 
 # HWPX 파일 변환
 python -m app document.hwpx -o output/document.md
@@ -150,20 +192,92 @@ python -m app document.hwpx -o output/document.md
 
 ---
 
-## 3. 테스트
+## 3. Docker Compose (통합 스택)
 
-### 테스트 파일
+`docker-compose.yml`로 API + MCP 서버 + Flowise를 한 번에 기동할 수 있습니다:
 
-`tests/` 디렉토리에 테스트용 HWP 파일이 포함되어 있습니다:
+```bash
+# 전체 스택 기동
+docker compose up -d --build
+
+# 개별 서비스 로그
+docker compose logs -f api       # HWP API
+docker compose logs -f mcp       # MCP 서버
+docker compose logs -f flowise   # Flowise
+```
+
+### 서비스 구성
+
+| 서비스 | 컨테이너 | 포트 | 역할 |
+|--------|----------|------|------|
+| `api` | hwp-api | `:8000` | HWP/HWPX -> Markdown 변환 엔진 |
+| `mcp` | hwp-mcp | `:3001` | MCP 프로토콜 인터페이스 |
+
+
+---
+
+## 4. Kubernetes 배포
+
+### 매니페스트 구조
 
 ```
-tests/
-  규격서_OPENMARU COP_오픈마루.hwp   # 테스트용 HWP 파일
+k8s_manifest/
+├── namespace.yaml           # 네임스페이스 생성
+├── configmap.yaml           # 환경변수 ConfigMap
+├── rbac.yaml                # RBAC (ServiceAccount, Role, RoleBinding)
+├── resource-policy.yaml     # ResourceQuota, LimitRange
+├── api-deployment.yaml      # HWP API Deployment + Service + HPA
+└── ingress.yaml             # Ingress (hwp-api.your-domain.com)
 ```
 
-추가 테스트 파일을 넣으려면 `.hwp` 또는 `.hwpx` 파일을 `tests/` 디렉토리에 복사하면 됩니다.
+### 배포
 
-### 전체 테스트 실행
+```bash
+kubectl apply -f k8s_manifest/
+```
+
+### 주요 설정
+
+| 항목 | 값 | 비고 |
+|------|-----|------|
+| Replicas | 2 (HPA: 2~10) | CPU 기반 오토스케일링 |
+| CPU Request | 500m~1000m 권장 | HWP 변환은 CPU 집약적 |
+| Health Probe | `/health` | liveness + readiness |
+| 파일 크기 제한 | `MAX_UPLOAD_SIZE_MB=100` | 환경변수로 설정 |
+
+### Ingress 설정 (필수)
+
+HWP 파일 변환 시 폴백 경로(hwp5html)가 최대 300초 소요될 수 있으므로 Ingress에 다음 annotation이 필요합니다:
+
+```yaml
+metadata:
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: "50m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "360"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "360"
+```
+
+### 다운로드 엔드포인트 주의사항
+
+- 한글 파일명은 RFC 5987 (`filename*=UTF-8''...`) 인코딩으로 Content-Disposition 헤더를 설정합니다.
+- HWP API가 **다중 Pod**로 운영되는 경우, 변환한 Pod과 다운로드 요청을 받는 Pod이 다를 수 있습니다.
+  - **해결 방법 A**: `/app/output`에 ReadWriteMany PVC를 마운트
+  - **해결 방법 B**: Flowise CustomFunction에서 MCP 응답의 markdown을 직접 활용 (download URL 미사용)
+
+---
+
+## 5. 환경변수
+
+| 변수 | 설명 | 기본값 |
+|------|------|--------|
+| `ENV` | 실행 환경 (`development` / `production`) | - |
+| `MAX_UPLOAD_SIZE_MB` | 최대 업로드 파일 크기 (MB) | `100` |
+| `HWP_FAST_DISABLE` | `1`로 설정 시 고속 변환 비활성화 (hwp5html만 사용) | `0` |
+| `HWP5HTML_TIMEOUT` | hwp5html 폴백 변환 타임아웃 (초) | `300` |
+
+---
+
+## 6. 테스트
 
 ```bash
 # 의존성 설치 (최초 1회)
@@ -172,56 +286,19 @@ pip install -r requirements-dev.txt
 # 전체 테스트 실행
 pytest
 
-# 특정 테스트 파일만 실행
-pytest tests/test_api.py        # API 테스트만
-pytest tests/test_cli.py        # CLI 테스트만
-pytest tests/test_converter.py  # 변환 서비스 테스트만
-
-# 특정 테스트 함수만 실행
-pytest tests/test_api.py::test_convert_hwp_api
+# 개별 테스트
+pytest tests/test_api.py        # API 테스트
+pytest tests/test_cli.py        # CLI 테스트
+pytest tests/test_converter.py  # 변환 서비스 테스트
 ```
 
 ### 테스트 항목
 
-**test_converter.py** - 변환 서비스 단위 테스트
-- `test_convert_hwp_file`: HWP → Markdown 변환
-- `test_convert_hwpx_file`: HWPX → Markdown 변환 (hwpx 파일이 있을 때)
-- `test_unsupported_format`: 지원하지 않는 형식 예외 처리
-- `test_convert_nonexistent_file`: 존재하지 않는 파일 예외 처리
-
-**test_api.py** - REST API 통합 테스트
-- `test_health_check`: 헬스체크 엔드포인트
-- `test_convert_hwp_api`: HWP 업로드 → JSON 응답
-- `test_convert_raw_api`: HWP 업로드 → Markdown 텍스트 응답
-- `test_upload_invalid_format`: 잘못된 형식 업로드 시 400 에러
-
-**test_cli.py** - CLI 통합 테스트
-- `test_cli_hwp_to_stdout`: HWP → 표준출력
-- `test_cli_hwp_to_file`: HWP → .md 파일 저장
-- `test_cli_invalid_format`: 잘못된 형식 오류 처리
-- `test_cli_nonexistent_file`: 없는 파일 오류 처리
-
-### 수동 테스트 (curl)
-
-서버가 실행된 상태에서:
-
-```bash
-# 1. 헬스체크
-curl http://localhost:8000/
-
-# 2. HWP 변환 (JSON)
-curl -X POST http://localhost:8000/api/v1/convert \
-  -F "file=@tests/규격서_OPENMARU COP_오픈마루.hwp" | python -m json.tool
-
-# 3. HWP 변환 (순수 Markdown) 결과를 파일로 저장
-curl -X POST http://localhost:8000/api/v1/convert/raw \
-  -F "file=@tests/규격서_OPENMARU COP_오픈마루.hwp" \
-  -o output/규격서.md
-
-# 4. 잘못된 형식 업로드 (400 에러 확인)
-curl -X POST http://localhost:8000/api/v1/convert \
-  -F "file=@README.md"
-```
+| 파일 | 테스트 항목 |
+|------|-------------|
+| `test_converter.py` | HWP/HWPX 변환, 미지원 형식 예외, 파일 없음 예외 |
+| `test_api.py` | 헬스체크, JSON 변환, Raw 변환, Base64 변환, 다운로드, 파일 형식 오류 |
+| `test_cli.py` | 표준출력, 파일 저장, 오류 처리 |
 
 ---
 
@@ -231,31 +308,28 @@ curl -X POST http://localhost:8000/api/v1/convert \
 hwpConverMd/
 ├── app/
 │   ├── __init__.py
-│   ├── __main__.py            # CLI 진입점
-│   ├── main.py                # FastAPI 앱
-│   ├── cli.py                 # CLI 인터페이스
+│   ├── __main__.py                # CLI 진입점
+│   ├── main.py                    # FastAPI 앱
+│   ├── cli.py                     # CLI 인터페이스
+│   ├── schemas.py                 # Pydantic 스키마
 │   ├── api/
-│   │   └── endpoints.py       # REST API 엔드포인트
+│   │   └── endpoints.py           # REST API 엔드포인트
 │   ├── core/
-│   │   └── exceptions.py      # 커스텀 예외
+│   │   └── exceptions.py          # 커스텀 예외
 │   ├── services/
-│   │   ├── converter.py       # 변환 디스패처
-│   │   ├── hwp_converter.py   # HWP → Markdown (hwp5html 경유)
-│   │   └── hwpx_converter.py  # HWPX → Markdown (XML 직접 파싱)
+│   │   ├── converter.py           # 변환 디스패처 (매직바이트 감지 + 라우팅)
+│   │   ├── hwp_fast_converter.py  # HWP 고속 변환 (XML 직접 파싱)
+│   │   ├── hwp_converter.py       # HWP 변환 폴백 (hwp5html 경유)
+│   │   └── hwpx_converter.py      # HWPX 변환 (XML 직접 파싱)
 │   └── utils/
-│       └── file_manager.py    # 임시 파일 관리
-├── tests/
-│   ├── conftest.py            # pytest 공통 fixture
-│   ├── test_converter.py      # 변환 서비스 테스트
-│   ├── test_api.py            # API 통합 테스트
-│   ├── test_cli.py            # CLI 통합 테스트
-│   └── *.hwp / *.hwpx        # 테스트용 문서 파일
-├── temp/                      # 임시 파일 (API 업로드 시 사용)
-├── output/                    # 변환 결과 저장 디렉토리
-├── requirements.txt           # 런타임 의존성
-├── requirements-dev.txt       # 개발/테스트 의존성
+│       └── file_manager.py        # 임시 파일 관리, OUTPUT_DIR
+├── k8s_manifest/                  # Kubernetes 매니페스트
+├── tests/                         # pytest 테스트
+├── temp/                          # 임시 파일 (API 업로드 시 사용)
+├── output/                        # 변환 결과 저장 (.md 파일)
+├── requirements.txt               # 런타임 의존성
+├── requirements-dev.txt           # 개발/테스트 의존성
 ├── Dockerfile
-├── docker-compose.yml
 └── pytest.ini
 ```
 
@@ -263,8 +337,18 @@ hwpConverMd/
 
 | 입력 | 변환 방식 | 비고 |
 |------|-----------|------|
-| `.hwp` | hwp5html → HTML → Markdown | pyhwp의 hwp5html 명령어 필요 |
-| `.hwpx` | ZIP → XML 직접 파싱 → Markdown | 추가 도구 불필요 |
+| `.hwp` | **1차**: pyhwp XML 직접 파싱 (고속) | XSLT 건너뜀, 10배+ 빠름 |
+|        | **2차**: hwp5html -> HTML -> Markdown (폴백) | 고속 변환 실패 시 자동 전환 |
+| `.hwpx` | ZIP -> XML 직접 파싱 -> Markdown | 추가 도구 불필요 |
+
+### 타임아웃 설정
+
+| 구성 요소 | 타임아웃 | 설명 |
+|-----------|---------|------|
+| HwpFastConverter | 제한 없음 (수 초 내 완료) | XML 직접 파싱, XSLT 미사용 |
+| HwpConverter (hwp5html 폴백) | 300초 | `HWP5HTML_TIMEOUT` 환경변수로 변경 가능 |
+| Uvicorn keep-alive | 360초 | Dockerfile `--timeout-keep-alive` |
+| Nginx Ingress proxy | 360초 | `proxy-read-timeout`, `proxy-send-timeout` |
 
 ## 응답 예시
 
@@ -273,7 +357,25 @@ hwpConverMd/
 ```json
 {
   "filename": "document.hwp",
-  "markdown": "# 제목\n\n본문 내용이 여기에 표시됩니다.\n\n## 소제목\n\n| 항목 | 값 |\n| --- | --- |\n| A | 100 |"
+  "markdown": "# 제목\n\n본문 내용...",
+  "download_url": "/api/v1/download/document_a1b2c3.md"
+}
+```
+
+### POST /api/v1/convert/base64 (JSON)
+
+```json
+// 요청
+{
+  "filename": "document.hwp",
+  "content_base64": "0M8R4KGxGuEAAAAAAAA..."
+}
+
+// 응답 (convert와 동일)
+{
+  "filename": "document.hwp",
+  "markdown": "# 제목\n\n본문 내용...",
+  "download_url": "/api/v1/download/document_a1b2c3.md"
 }
 ```
 

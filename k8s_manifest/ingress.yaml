@@ -9,10 +9,9 @@ metadata:
     # nginx: nginx.ingress.kubernetes.io/*
     # traefik: traefik.ingress.kubernetes.io/*
     # ================================================
-    # hwp5html 타임아웃(600초) + 후처리 여유 = 660초
-    # 대용량 HWP(6MB+)는 변환에 4~10분 소요 가능
-    nginx.ingress.kubernetes.io/proxy-read-timeout: "660"
-    nginx.ingress.kubernetes.io/proxy-send-timeout: "660"
+    # 고속 변환(HwpFastConverter) 기본, hwp5html 폴백 타임아웃(300초) + 여유 = 360초
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "360"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "360"
     # HWP 대용량 파일 업로드 허용 (기본 1m → 50m)
     nginx.ingress.kubernetes.io/proxy-body-size: "50m"
 spec:
@@ -24,6 +23,20 @@ spec:
       http:
         paths:
           - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: hwp-api-svc
+                port:
+                  number: 8000
+          - path: /docs
+            pathType: Prefix
+            backend:
+              service:
+                name: hwp-api-svc
+                port:
+                  number: 8000
+          - path: /redoc
             pathType: Prefix
             backend:
               service:

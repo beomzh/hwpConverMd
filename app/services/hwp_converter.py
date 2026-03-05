@@ -13,7 +13,7 @@ from app.core.exceptions import HwpConversionError
 logger = logging.getLogger(__name__)
 
 # hwp5html 타임아웃 (초), 환경변수로 설정 가능, 기본 180초
-HWP5HTML_TIMEOUT = int(os.environ.get("HWP5HTML_TIMEOUT", "600"))
+HWP5HTML_TIMEOUT = int(os.environ.get("HWP5HTML_TIMEOUT", "300"))
 
 
 class HwpConverter:
@@ -583,9 +583,12 @@ def _extract_cell_text(cell, bg_map: dict = None) -> str:
 
 def _hex_to_color_marker(hex_color: str) -> str:
     """hex 색상 코드를 가장 가까운 색상 마커로 변환한다.
-
-    진한 색 → 채워진 사각형 이모지 (🟦), 연한 색 → 한국어 색상명 ([하늘색]) 으로 구분.
-    일정표·간트 차트 등에서 색칠된 빈 셀을 시각적으로 구분하기 위해 사용.
+        - 회색 계열: 밝기에 따라 ■ (짙은 회색) 또는 ⬛ (검은색)
+        - 빨강, 주황, 노랑, 초록, 파랑, 보라: 밝기에 따라 일반 색상 또는 이모지
+        - 알 수 없는 색상이나 변환 실패 시 ■ 반환
+        - HSL 기반 색상 판별로 RGB가 비슷한 회색과 구분한다.
+        - 밝기는 Lightness 기준으로 0.65 이상이면 밝은 색으로 간주한다.
+        - HWP 일정표 등에서 자주 나오는 색상을 우선적으로 매핑한다.
     """
     hex_color = hex_color.lstrip("#").lower()
     if len(hex_color) != 6:
@@ -619,21 +622,21 @@ def _hex_to_color_marker(hex_color: str) -> str:
 
     is_light = lightness >= 0.65
 
-    # 진한 색 → 사각형 이모지, 연한 색 → 한국어 색상명
+    # 진한 색 → 사각형 이모지, 연한 색 → hex 코드
     if hue < 15 or hue >= 345:
-        return "[연분홍]" if is_light else "🟥"
+        return "#FFC0CB" if is_light else "🟥"
     elif hue < 45:
-        return "[살구색]" if is_light else "🟧"
+        return "#F4A460" if is_light else "🟧"
     elif hue < 70:
-        return "[연노랑]" if is_light else "🟨"
+        return "#FFD700" if is_light else "🟨"
     elif hue < 160:
-        return "[연두색]" if is_light else "🟩"
+        return "#90EE90" if is_light else "🟩"
     elif hue < 260:
-        return "[하늘색]" if is_light else "🟦"
+        return "#87CEEB" if is_light else "🟦"
     elif hue < 310:
-        return "[연보라]" if is_light else "🟪"
+        return "#9370DB" if is_light else "🟪"
     else:
-        return "[연분홍]" if is_light else "🟥"
+        return "#FF69B4" if is_light else "🟥"
 
 
 def _postprocess(text: str) -> str:

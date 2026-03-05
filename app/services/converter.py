@@ -1,9 +1,11 @@
 import asyncio
 import logging
+import os
 from pathlib import Path
 
 from app.core.exceptions import UnsupportedFormatError
 from app.services.hwp_converter import HwpConverter
+from app.services.hwp_fast_converter import HwpFastConverter
 from app.services.hwpx_converter import HwpxConverter
 
 logger = logging.getLogger(__name__)
@@ -11,6 +13,10 @@ logger = logging.getLogger(__name__)
 # 매직 바이트 상수
 OLE2_MAGIC = b'\xd0\xcf\x11\xe0'   # OLE2 Compound Binary (HWP5)
 ZIP_MAGIC = b'\x50\x4b\x03\x04'    # ZIP archive (HWPX)
+
+# 고속 변환 비활성화 플래그 (환경변수로 제어)
+# HWP_FAST_DISABLE=1 로 설정하면 기존 hwp5html 방식만 사용
+FAST_DISABLE = os.environ.get("HWP_FAST_DISABLE", "0") == "1"
 
 
 class ConverterService:
@@ -60,9 +66,43 @@ class ConverterService:
         fmt = detected or ext.lstrip(".")
 
         if fmt == "hwp":
-            return await HwpConverter.convert(file_path)
+            return await ConverterService._convert_hwp(file_path)
         else:  # hwpx (CPU-bound, executor에서 실행)
             loop = asyncio.get_event_loop()
             return await loop.run_in_executor(
                 None, HwpxConverter.convert, file_path
             )
+
+    @staticmethod
+    async def _convert_hwp(file_path: str) -> str:
+        """HWP 파일 변환: 고속 경로 우선, 실패 시 hwp5html 폴백.
+
+        고속 경로 (HwpFastConverter):
+            pyhwp XML 직접 파싱 → Markdown (XSLT 건너뜀)
+            대부분의 HWP 파일에서 10배 이상 빠름
+
+        폴백 경로 (HwpConverter):
+            hwp5html → HTML → markdownify → Markdown
+            고속 경로 실패 시 안전하게 폴백
+        """
+        if not FAST_DISABLE:
+            try:
+                loop = asyncio.get_event_loop()
+                result = await loop.run_in_executor(
+                    None, HwpFastConverter.convert, file_path
+                )
+                # 결과가 충분히 있는지 검증 (빈 결과면 폴백)
+                if result and len(result.strip()) > 10:
+                    return result
+                else:
+                    logger.warning(
+                        f"고속 변환 결과가 너무 짧음 ({len(result)} chars), "
+                        f"hwp5html 폴백"
+                    )
+            except Exception as e:
+                logger.warning(
+                    f"고속 변환 실패, hwp5html 폴백: {type(e).__name__}: {e}"
+                )
+
+        # 폴백: 기존 hwp5html 방식
+        return await HwpConverter.convert(file_path)

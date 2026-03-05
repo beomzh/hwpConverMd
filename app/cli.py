@@ -7,6 +7,7 @@
 """
 
 import argparse
+import asyncio
 import sys
 from pathlib import Path
 
@@ -45,7 +46,7 @@ def main():
         sys.exit(1)
 
     try:
-        markdown_text = ConverterService.convert(str(input_path))
+        markdown_text = asyncio.run(ConverterService.convert(str(input_path)))
     except ConversionError as e:
         print(f"변환 오류: {e}", file=sys.stderr)
         sys.exit(1)

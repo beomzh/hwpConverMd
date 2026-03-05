@@ -21,7 +21,7 @@ spec:
         app: hwp-api
     spec:
       serviceAccountName: hwp-converter-sa
-      terminationGracePeriodSeconds: 610  # 변환 타임아웃(600s) + 여유 10s
+      terminationGracePeriodSeconds: 310  # 변환 타임아웃(300s) + 여유 10s
       securityContext:
         runAsNonRoot: true
         runAsUser: 1000

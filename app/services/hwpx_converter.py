@@ -751,21 +751,21 @@ def _hex_to_color_marker(hex_color: str) -> str:
 
     is_light = lightness >= 0.65
 
-    # 진한 색 → 사각형 이모지, 연한 색 → 한국어 색상명
+    # 진한 색 → 사각형 이모지, 연한 색 → hex 코드
     if hue < 15 or hue >= 345:
-        return "[연분홍]" if is_light else "🟥"
+        return "#FFC0CB" if is_light else "🟥"
     elif hue < 45:
-        return "[살구색]" if is_light else "🟧"
+        return "#F4A460" if is_light else "🟧"
     elif hue < 70:
-        return "[연노랑]" if is_light else "🟨"
+        return "#FFD700" if is_light else "🟨"
     elif hue < 160:
-        return "[연두색]" if is_light else "🟩"
+        return "#90EE90" if is_light else "🟩"
     elif hue < 260:
-        return "[하늘색]" if is_light else "🟦"
+        return "#87CEEB" if is_light else "🟦"
     elif hue < 310:
-        return "[연보라]" if is_light else "🟪"
+        return "#9370DB" if is_light else "🟪"
     else:
-        return "[연분홍]" if is_light else "🟥"
+        return "#FF69B4" if is_light else "🟥"
 
 
 # ─── 후처리 ─────────────────────────────────────────────────────────────────
