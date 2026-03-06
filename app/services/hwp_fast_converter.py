@@ -44,13 +44,29 @@ pyhwp 내부 XML 구조:
 
 import io
 import logging
+import os
 import re
+import sys
 import tempfile
 import time
 import xml.etree.ElementTree as ET
+from contextlib import contextmanager
 from pathlib import Path
 
 from app.core.exceptions import HwpConversionError
+
+
+@contextmanager
+def _suppress_stderr():
+    """pyhwp의 'undefined XXXStyle value' 등 stderr print 경고를 억제한다."""
+    devnull = open(os.devnull, "w")
+    old_stderr = sys.stderr
+    try:
+        sys.stderr = devnull
+        yield
+    finally:
+        sys.stderr = old_stderr
+        devnull.close()
 
 logger = logging.getLogger(__name__)
 
@@ -80,7 +96,8 @@ class HwpFastConverter:
             )
 
         try:
-            hwpfile = Hwp5File(hwp_path)
+            with _suppress_stderr():
+                hwpfile = Hwp5File(hwp_path)
         except Exception as e:
             raise HwpConversionError(f"HWP 파일 열기 실패: {e}")
 
@@ -89,7 +106,8 @@ class HwpFastConverter:
         # XML 바이트 덤프
         try:
             xml_buf = io.BytesIO()
-            hwpfile.xmlevents(embedbin=False).dump(xml_buf)
+            with _suppress_stderr():
+                hwpfile.xmlevents(embedbin=False).dump(xml_buf)
             xml_data = xml_buf.getvalue()
         except Exception as e:
             raise HwpConversionError(f"HWP XML 덤프 실패: {e}")

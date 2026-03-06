@@ -1,4 +1,7 @@
 from fastapi import FastAPI
+from fastapi.exceptions import RequestValidationError
+from starlette.requests import Request
+from starlette.responses import JSONResponse
 
 from app.api.endpoints import router
 from app.schemas import HealthResponse
@@ -52,6 +55,28 @@ app = FastAPI(
 )
 
 app.include_router(router, prefix="/api/v1", tags=["convert"])
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(
+    request: Request, exc: RequestValidationError
+) -> JSONResponse:
+    """Pydantic 검증 실패 시 사람이 읽기 쉬운 400 에러를 반환한다.
+
+    - 422 대신 400 Bad Request 로 통일
+    - 바이너리 데이터가 content_base64 필드로 전달되면 기본 핸들러가
+      bytes → UTF-8 디코딩에 실패하므로, 입력값을 포함하지 않는
+      간결한 에러 메시지만 반환한다.
+    """
+    messages = []
+    for err in exc.errors():
+        loc = " → ".join(str(l) for l in err.get("loc", []))
+        msg = err.get("msg", "알 수 없는 오류")
+        messages.append(f"{loc}: {msg}" if loc else msg)
+    return JSONResponse(
+        status_code=400,
+        content={"detail": "; ".join(messages)},
+    )
 
 
 @app.get(
