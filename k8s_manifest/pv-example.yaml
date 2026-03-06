@@ -1,0 +1,65 @@
+# =============================================================================
+#  PersistentVolume 예시 — 클러스터 환경에 맞는 것 하나만 선택해서 사용
+#  PVC(hwp-api-output)는 api-deployment.yaml에 이미 포함되어 있음
+# =============================================================================
+
+# ─────────────────────────────────────────────
+#  1) NFS — 온프레미스 환경에서 가장 일반적
+# ─────────────────────────────────────────────
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: hwp-api-output-pv
+  labels:
+    app: hwp-api
+spec:
+  capacity:
+    storage: 2Gi
+  accessModes:
+    - ReadWriteMany
+  persistentVolumeReclaimPolicy: Retain
+  # storageClassName: nfs          # PVC의 storageClassName과 일치시킬 것
+  # volumeMode: Filesystem
+  nfs:
+    server: 192.168.1.100          # [수정 필요] NFS 서버 IP
+    path: /exports/hwp-output      # [수정 필요] NFS export 경로
+
+# ─────────────────────────────────────────────
+#  2) hostPath — 단일 노드 테스트 전용 (프로덕션 비권장)
+# ─────────────────────────────────────────────
+# apiVersion: v1
+# kind: PersistentVolume
+# metadata:
+#   name: hwp-api-output-pv
+#   labels:
+#     app: hwp-api
+# spec:
+#   capacity:
+#     storage: 2Gi
+#   accessModes:
+#     - ReadWriteMany
+#   persistentVolumeReclaimPolicy: Retain
+#   hostPath:
+#     path: /data/hwp-output        # 노드의 로컬 경로
+#     type: DirectoryOrCreate
+
+# ─────────────────────────────────────────────
+#  3) AWS EFS — EKS 환경
+#     (efs-csi-driver 설치 필요: https://github.com/kubernetes-sigs/aws-efs-csi-driver)
+# ─────────────────────────────────────────────
+# apiVersion: v1
+# kind: PersistentVolume
+# metadata:
+#   name: hwp-api-output-pv
+#   labels:
+#     app: hwp-api
+# spec:
+#   capacity:
+#     storage: 2Gi
+#   accessModes:
+#     - ReadWriteMany
+#   persistentVolumeReclaimPolicy: Retain
+#   storageClassName: efs-sc
+#   csi:
+#     driver: efs.csi.aws.com
+#     volumeHandle: fs-0123456789abcdef0   # [수정 필요] EFS 파일시스템 ID

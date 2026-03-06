@@ -1,13 +1,20 @@
+import logging
 import os
 import shutil
+import time
 import uuid
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 TEMP_DIR = Path("temp")
 TEMP_DIR.mkdir(exist_ok=True)
 
 OUTPUT_DIR = Path("output")
 OUTPUT_DIR.mkdir(exist_ok=True)
+
+# output 파일 보관 시간 (초). 환경변수로 설정 가능, 기본 24시간
+OUTPUT_TTL_SEC = int(os.environ.get("OUTPUT_TTL_SEC", str(3600 * 24)))
 
 
 def save_temp_file(file_content: bytes, extension: str) -> str:
@@ -45,3 +52,24 @@ def cleanup_files(*file_paths: str):
                 shutil.rmtree(path, ignore_errors=True)
             else:
                 os.remove(path)
+
+
+def cleanup_old_outputs() -> int:
+    """OUTPUT_TTL_SEC보다 오래된 output 파일(.md, .name)을 삭제한다.
+
+    반환: 삭제한 파일 수
+    """
+    now = time.time()
+    removed = 0
+    for f in OUTPUT_DIR.iterdir():
+        if f.suffix in (".md", ".name"):
+            try:
+                age = now - f.stat().st_mtime
+                if age > OUTPUT_TTL_SEC:
+                    f.unlink()
+                    removed += 1
+            except OSError:
+                pass
+    if removed:
+        logger.info(f"[cleanup] output 파일 {removed}개 삭제 (TTL={OUTPUT_TTL_SEC}s)")
+    return removed

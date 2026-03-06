@@ -3,3 +3,4 @@ uvicorn[standard]
 python-multipart
 pyhwp
 markdownify
+beautifulsoup4

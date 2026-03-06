@@ -1,3 +1,8 @@
+import asyncio
+import logging
+
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.exceptions import RequestValidationError
 from starlette.requests import Request
@@ -5,25 +10,51 @@ from starlette.responses import JSONResponse
 
 from app.api.endpoints import router
 from app.schemas import HealthResponse
+from app.utils.file_manager import cleanup_old_outputs
+
+logger = logging.getLogger(__name__)
+
+
+# ── 서버 시작/종료 시 실행 ──
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """서버 기동 시 오래된 output 정리 + 주기적 정리 태스크 시작"""
+    cleanup_old_outputs()
+
+    async def _periodic_cleanup():
+        while True:
+            await asyncio.sleep(3600 * 12)  # 12시간마다
+            cleanup_old_outputs()
+
+    task = asyncio.create_task(_periodic_cleanup())
+    yield
+    task.cancel()
+
 
 app = FastAPI(
     title="HWP to Markdown API",
+    lifespan=lifespan,
     description=(
+        "*License: MIT*\n\n"
         "HWP/HWPX 파일을 Markdown으로 변환하는 REST API입니다.\n\n"
+        "---\n\n"
         "## 기능\n"
         "- **HWP → Markdown**: 한글(HWP) 파일을 Markdown으로 변환\n"
         "- **HWPX → Markdown**: 한글(HWPX) 파일을 Markdown으로 변환\n"
-        "- **JSON 응답**: 파일명과 Markdown 텍스트를 JSON으로 반환\n"
-        "- **Raw 텍스트 응답**: 순수 Markdown 텍스트를 `text/markdown`으로 반환\n\n"
+        "- **다중 파일 동시 변환**: 여러 파일을 한 번에 업로드 가능\n"
+        "- **두 가지 전송 방식**: `multipart/form-data`(파일) 또는 `application/json`(Base64)\n"
+        "- **JSON / Raw 텍스트 응답**: 용도에 맞게 선택 가능\n\n"
         "## 지원 형식\n"
         "| 확장자 | 형식 | 설명 |\n"
         "| --- | --- | --- |\n"
         "| `.hwp` | HWP | 한글 워드프로세서 바이너리 형식 |\n"
         "| `.hwpx` | HWPX | 한글 워드프로세서 XML 형식 (OWPML) |\n\n"
-        "## 사용 방법\n"
-        "1. Postman 또는 API Dog에서 `openapi.json`을 import하여 테스트\n"
-        "2. 파일을 `multipart/form-data`로 업로드\n"
-        "3. 변환 결과를 JSON 또는 Raw 텍스트로 수신"
+        "## 전송 방식\n"
+        "모든 변환 엔드포인트는 두 가지 방식을 동시에 지원합니다:\n\n"
+        "**1. 파일 업로드** (`multipart/form-data`)\n"
+        "```\ncurl -X POST /api/v1/convert -F file=@보고서.hwp\n```\n\n"
+        "**2. Base64 JSON** (`application/json`)\n"
+        '```json\n{"filename": "보고서.hwp", "content_base64": "0M8R4..."}\n```'
     ),
     version="1.0.0",
     servers=[
@@ -48,9 +79,6 @@ app = FastAPI(
     ],
     contact={
         "name": "HWP Converter API",
-    },
-    license_info={
-        "name": "MIT",
     },
 )
 

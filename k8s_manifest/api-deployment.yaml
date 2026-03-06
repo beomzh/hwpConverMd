@@ -85,8 +85,21 @@ spec:
           emptyDir:
             sizeLimit: 2Gi
         - name: output-dir
-          emptyDir:
-            sizeLimit: 2Gi
+          persistentVolumeClaim:
+            claimName: hwp-api-output
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: hwp-api-output
+  namespace: hwp-converter
+spec:
+  accessModes:
+    - ReadWriteMany          # Pod 여러 개가 동시에 읽기/쓰기
+  resources:
+    requests:
+      storage: 2Gi
+  # storageClassName: nfs    # 클러스터 환경에 맞는 RWX 지원 스토리지 클래스 지정
 ---
 apiVersion: v1
 kind: Service

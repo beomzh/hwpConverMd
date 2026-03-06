@@ -59,14 +59,13 @@ from app.core.exceptions import HwpConversionError
 @contextmanager
 def _suppress_stderr():
     """pyhwp의 'undefined XXXStyle value' 등 stderr print 경고를 억제한다."""
-    devnull = open(os.devnull, "w")
-    old_stderr = sys.stderr
-    try:
-        sys.stderr = devnull
-        yield
-    finally:
-        sys.stderr = old_stderr
-        devnull.close()
+    with open(os.devnull, "w") as devnull:
+        old_stderr = sys.stderr
+        try:
+            sys.stderr = devnull
+            yield
+        finally:
+            sys.stderr = old_stderr
 
 logger = logging.getLogger(__name__)
 

@@ -63,7 +63,7 @@ async def _extract_files(request: Request) -> List[Tuple[str, bytes]]:
                     files.append((item.filename or "unknown", content))
         if not files:
             raise HTTPException(status_code=400, detail="파일이 없습니다.")
-        return files
+        return files, {}
 
     # ── application/json (base64) ──
     try:
@@ -88,7 +88,8 @@ async def _extract_files(request: Request) -> List[Tuple[str, bytes]]:
             detail="filename+content_base64 또는 files 배열이 필요합니다.",
         )
 
-    files = []
+    files: List[Tuple[str, bytes]] = []
+    decode_errors: dict = {}
     for item in file_items:
         fname = item.get("filename", "unknown")
         b64 = item.get("content_base64", "")
@@ -96,19 +97,29 @@ async def _extract_files(request: Request) -> List[Tuple[str, bytes]]:
             raw = _decode_base64(b64)
         except Exception as exc:
             logger.error(f"[base64] {fname} decode failed: {exc}")
-            # 디코딩 실패는 (filename, None) 대신 빈 bytes → _convert_one 에서 처리
+            decode_errors[fname] = str(exc)
             files.append((fname, b""))
             continue
         files.append((fname, raw))
 
-    return files
+    return files, decode_errors
 
 
-async def _convert_one(filename: str, content: bytes) -> ConvertResult:
+async def _convert_one(
+    filename: str, content: bytes, decode_error: str = ""
+) -> ConvertResult:
     """단일 파일을 변환하고 ConvertResult를 반환한다.
 
     변환 실패 시에도 예외를 던지지 않고 error 필드에 메시지를 담아 반환한다.
+    decode_error가 설정되어 있으면 Base64 디코딩 실패로 간주한다.
     """
+    # Base64 디코딩 실패한 파일은 즉시 에러 반환
+    if decode_error:
+        return ConvertResult(
+            filename=filename,
+            error=f"Base64 디코딩 실패: {decode_error}",
+        )
+
     ext = Path(filename).suffix.lower()
     if ext not in (".hwp", ".hwpx"):
         return ConvertResult(
@@ -176,8 +187,11 @@ _CONVERT_DESC = (
 )
 async def convert_file(request: Request):
     """HWP/HWPX 파일을 Markdown JSON으로 반환한다. (파일 업로드 & JSON 모두 지원)"""
-    file_list = await _extract_files(request)
-    results = [await _convert_one(name, data) for name, data in file_list]
+    file_list, decode_errors = await _extract_files(request)
+    results = [
+        await _convert_one(name, data, decode_errors.get(name, ""))
+        for name, data in file_list
+    ]
     return ConvertResponse(results=results)
 
 
@@ -216,8 +230,14 @@ _RAW_DESC = (
 )
 async def convert_file_raw(request: Request):
     """HWP/HWPX 파일을 순수 Markdown 텍스트로 반환한다. (첫 번째 파일만)"""
-    file_list = await _extract_files(request)
+    file_list, decode_errors = await _extract_files(request)
     filename, content = file_list[0]
+
+    if filename in decode_errors:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Base64 디코딩 실패: {decode_errors[filename]}",
+        )
 
     ext = Path(filename).suffix.lower()
     if ext not in (".hwp", ".hwpx"):
@@ -275,8 +295,11 @@ _BASE64_DESC = (
 )
 async def convert_file_base64(request: Request):
     """HWP/HWPX 파일을 Markdown JSON으로 반환한다. (/convert와 동일)"""
-    file_list = await _extract_files(request)
-    results = [await _convert_one(name, data) for name, data in file_list]
+    file_list, decode_errors = await _extract_files(request)
+    results = [
+        await _convert_one(name, data, decode_errors.get(name, ""))
+        for name, data in file_list
+    ]
     return ConvertResponse(results=results)
 
 
