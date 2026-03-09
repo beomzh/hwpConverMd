@@ -54,6 +54,15 @@ from contextlib import contextmanager
 from pathlib import Path
 
 from app.core.exceptions import HwpConversionError
+from app.services.shared import (
+    hex_to_color_marker,
+    is_sparse_layout_table,
+    layout_table_to_text,
+    merge_sparse_rows,
+    postprocess_cleanup,
+    postprocess_headings,
+    strip_pua,
+)
 
 
 @contextmanager
@@ -194,6 +203,9 @@ def _load_border_fills(root) -> dict:
     BorderFill은 1-based 인덱스로 참조된다.
     <TableCell borderfill-id="N"> 의 N이 인덱스.
 
+    간트차트 등에서 일정 표시용 패턴 채우기(cross, diagonal 등)도 지원한다.
+    pattern-type이 "none"이 아니면 pattern-color를 우선 사용한다.
+
     Returns:
         {borderfill_id: hex_color} (흰색 제외)
     """
@@ -202,6 +214,14 @@ def _load_border_fills(root) -> dict:
     idx = 1  # 1-based
     for elem in root.iter("BorderFill"):
         for fcp in elem.iter("FillColorPattern"):
+            # 패턴 채우기(cross, diagonal 등)가 있으면 pattern-color 우선
+            pattern_type = fcp.get("pattern-type", "none")
+            if pattern_type not in ("none", ""):
+                pc = fcp.get("pattern-color", "")
+                if pc.lower() not in skip_colors:
+                    border_fills[str(idx)] = pc
+                    break
+            # 패턴이 없으면 background-color 사용
             bg = fcp.get("background-color", "")
             if bg.lower() not in skip_colors:
                 border_fills[str(idx)] = bg
@@ -419,7 +439,7 @@ def _parse_table_control(table_ctrl, charshapes, border_fills):
 
         # 빈 셀에 배경색이 있으면 색상 마커 표시
         if not cell_text.strip() and bf_id in border_fills:
-            cell_text = _hex_to_color_marker(border_fills[bf_id])
+            cell_text = hex_to_color_marker(border_fills[bf_id])
 
         cell_data.append({
             "col": col,
@@ -450,7 +470,7 @@ def _parse_table_control(table_ctrl, charshapes, border_fills):
 
     # --- 레이아웃 테이블 (20열+) → 텍스트 ---
     if num_cols >= 20:
-        return _layout_table_to_text(cell_data)
+        return layout_table_to_text(cell_data)
 
     # --- 2D 그리드 구축 ---
     grid = [["" for _ in range(num_cols)] for _ in range(num_rows)]
@@ -466,8 +486,9 @@ def _parse_table_control(table_ctrl, charshapes, border_fills):
     if not grid:
         return ""
 
-    # --- 희소 데이터 행 병합 ---
-    grid = _merge_sparse_rows(grid, num_cols)
+    # --- 희소 데이터 행 병합 (레이아웃 테이블은 병합 건너뛰기) ---
+    if not is_sparse_layout_table(grid, num_cols):
+        grid = merge_sparse_rows(grid, num_cols)
 
     if not grid:
         return ""
@@ -602,7 +623,7 @@ def _flatten_nested_table(tbl_ctrl, charshapes) -> str:
     # 헤더 판단
     first_row = rows[0]
     data_rows = rows[1:]
-    clean_first = [_strip_pua(c) for c in first_row]
+    clean_first = [strip_pua(c) for c in first_row]
     non_empty_first = [c for c in clean_first if c]
     all_short = all(len(c) <= 30 for c in clean_first)
     has_enough_cols = len(non_empty_first) >= 2
@@ -613,7 +634,7 @@ def _flatten_nested_table(tbl_ctrl, charshapes) -> str:
         for row in data_rows:
             parts = []
             for i in range(max_cols):
-                val = _strip_pua(row[i]) if i < len(row) else ""
+                val = strip_pua(row[i]) if i < len(row) else ""
                 header = headers[i] if i < len(headers) else ""
                 if not val:
                     continue
@@ -627,130 +648,10 @@ def _flatten_nested_table(tbl_ctrl, charshapes) -> str:
     else:
         result_lines = []
         for row in rows:
-            non_empty = [_strip_pua(c) for c in row if _strip_pua(c)]
+            non_empty = [strip_pua(c) for c in row if strip_pua(c)]
             if non_empty:
                 result_lines.append(" / ".join(non_empty))
         return "\n".join(result_lines) if result_lines else ""
-
-
-# ─── 테이블 후처리 ────────────────────────────────────────────────────────
-
-
-def _merge_sparse_rows(grid, num_cols):
-    """비어있지 않은 셀이 매우 적은 행을 위 행에 병합한다.
-
-    rowspan으로 인해 빈 셀이 많은 행에서 발생하는 문제를 해결한다.
-    (hwpx_converter._merge_sparse_rows와 동일 로직)
-    """
-    if not grid:
-        return grid
-
-    sparse_threshold = max(1, num_cols // 3)
-    merged = [list(grid[0])]
-
-    for row in grid[1:]:
-        non_empty = sum(1 for c in row if c.strip())
-        if non_empty <= sparse_threshold and non_empty > 0 and merged:
-            prev = merged[-1]
-            can_merge = all(
-                not (prev[c].strip() and row[c].strip())
-                for c in range(min(len(prev), len(row), num_cols))
-            )
-            if can_merge:
-                for c in range(min(len(prev), len(row), num_cols)):
-                    if row[c].strip():
-                        prev[c] = row[c]
-                continue
-        merged.append(list(row))
-
-    return merged
-
-
-def _layout_table_to_text(cell_data):
-    """레이아웃 테이블(20열+)을 텍스트로 변환한다.
-
-    (hwpx_converter._layout_table_to_text와 동일 로직)
-    """
-    seen = set()
-    lines = []
-    current_row = -1
-    row_parts = []
-
-    for cell in cell_data:
-        if cell["row"] != current_row:
-            if row_parts:
-                lines.append(" / ".join(row_parts))
-            row_parts = []
-            current_row = cell["row"]
-
-        text = cell["text"].strip()
-        if text and text not in seen:
-            row_parts.append(text)
-            seen.add(text)
-
-    if row_parts:
-        lines.append(" / ".join(row_parts))
-
-    return "\n\n".join(lines)
-
-
-# ─── 유틸리티 ─────────────────────────────────────────────────────────────
-
-
-def _strip_pua(text: str) -> str:
-    """Private Use Area (U+E000-U+F8FF) 등 비표시 문자를 제거한다."""
-    return re.sub(r'[\uE000-\uF8FF]', '', text).strip()
-
-
-def _hex_to_color_marker(hex_color: str) -> str:
-    """hex 색상 코드를 가장 가까운 색상 마커로 변환한다.
-
-    (hwpx_converter._hex_to_color_marker와 동일 로직)
-    """
-    hex_color = hex_color.lstrip("#").lower()
-    if len(hex_color) == 8:
-        hex_color = hex_color[2:]  # ARGB → RGB
-    if len(hex_color) != 6:
-        return "■"
-    r, g, b = int(hex_color[0:2], 16), int(hex_color[2:4], 16), int(hex_color[4:6], 16)
-
-    if abs(r - g) < 20 and abs(g - b) < 20 and abs(r - b) < 20:
-        avg = (r + g + b) // 3
-        if avg < 80:
-            return "⬛"
-        return "■"
-
-    max_c = max(r, g, b)
-    min_c = min(r, g, b)
-    diff = max_c - min_c
-    if diff == 0:
-        return "■"
-
-    lightness = (max_c + min_c) / 510.0
-
-    if max_c == r:
-        hue = 60 * (((g - b) / diff) % 6)
-    elif max_c == g:
-        hue = 60 * (((b - r) / diff) + 2)
-    else:
-        hue = 60 * (((r - g) / diff) + 4)
-
-    is_light = lightness >= 0.65
-
-    if hue < 15 or hue >= 345:
-        return "#FFC0CB" if is_light else "🟥"
-    elif hue < 45:
-        return "#F4A460" if is_light else "🟧"
-    elif hue < 70:
-        return "#FFD700" if is_light else "🟨"
-    elif hue < 160:
-        return "#90EE90" if is_light else "🟩"
-    elif hue < 260:
-        return "#87CEEB" if is_light else "🟦"
-    elif hue < 310:
-        return "#9370DB" if is_light else "🟪"
-    else:
-        return "#FF69B4" if is_light else "🟥"
 
 
 # ─── 후처리 ───────────────────────────────────────────────────────────────
@@ -787,7 +688,7 @@ def _postprocess(text: str) -> str:
     # 3단계: 위 처리로 재발생 가능한 **** 및 빈 볼드 재정리
     while '****' in text:
         text = text.replace('****', '')
-    text = re.sub(r'\*\*\s*\*\*', ' ', text)
+    text = re.sub(r'\*\*[^\S\n]*\*\*', ' ', text)
 
     # 4단계: 짝이 없는 stray ** 제거 (줄 단위, 테이블 제외)
     #   목차 등 ** 마커 과다한 줄 → 모든 ** 제거
@@ -908,27 +809,6 @@ def _postprocess(text: str) -> str:
             toc_lines.append(line)
     text = '\n'.join(toc_lines)
 
-    # --- 번호 기반 제목/소제목 헤딩 추가 ---
-    heading_lines = []
-    for line in text.split('\n'):
-        stripped = line.strip()
-        if '|' in stripped or stripped.startswith('#'):
-            heading_lines.append(line)
-            continue
-        # 3단계: N.N.N 형식
-        if re.match(r'^\d+\.\d+\.\d+\.?\s+\S', stripped):
-            heading_lines.append(f'#### {stripped}')
-        # 2단계: N.N 형식
-        elif re.match(r'^\d+\.\d+\.?\s+\S', stripped):
-            heading_lines.append(f'### {stripped}')
-        # 1단계: N. 형식
-        elif re.match(r'^\d+\.\s+\S', stripped):
-            heading_lines.append(f'## {stripped}')
-        else:
-            heading_lines.append(line)
-    text = '\n'.join(heading_lines)
-
-    # 과도한 빈 줄 정리
-    text = re.sub(r'\n{3,}', '\n\n', text)
-
-    return text.strip()
+    # 번호 기반 헤딩 추가 및 공통 정리 (shared)
+    text = postprocess_headings(text)
+    return postprocess_cleanup(text)

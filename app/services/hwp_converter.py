@@ -9,6 +9,11 @@ from bs4 import BeautifulSoup
 from markdownify import markdownify as md
 
 from app.core.exceptions import HwpConversionError
+from app.services.shared import (
+    hex_to_color_marker,
+    postprocess_cleanup,
+    postprocess_headings,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -572,7 +577,7 @@ def _extract_cell_text(cell, bg_map: dict = None) -> str:
         cls_list = cell.get("class", [])
         for c in cls_list:
             if c in bg_map and bg_map[c] not in skip_colors:
-                cell_text = _hex_to_color_marker(bg_map[c])
+                cell_text = hex_to_color_marker(bg_map[c])
                 break
 
     # 파이프 문자 이스케이프
@@ -581,67 +586,9 @@ def _extract_cell_text(cell, bg_map: dict = None) -> str:
     return cell_text
 
 
-def _hex_to_color_marker(hex_color: str) -> str:
-    """hex 색상 코드를 가장 가까운 색상 마커로 변환한다.
-        - 회색 계열: 밝기에 따라 ■ (짙은 회색) 또는 ⬛ (검은색)
-        - 빨강, 주황, 노랑, 초록, 파랑, 보라: 밝기에 따라 일반 색상 또는 이모지
-        - 알 수 없는 색상이나 변환 실패 시 ■ 반환
-        - HSL 기반 색상 판별로 RGB가 비슷한 회색과 구분한다.
-        - 밝기는 Lightness 기준으로 0.65 이상이면 밝은 색으로 간주한다.
-        - HWP 일정표 등에서 자주 나오는 색상을 우선적으로 매핑한다.
-    """
-    hex_color = hex_color.lstrip("#").lower()
-    if len(hex_color) != 6:
-        return "■"
-    r, g, b = int(hex_color[0:2], 16), int(hex_color[2:4], 16), int(hex_color[4:6], 16)
-
-    # 회색 계열 (R≈G≈B) — 임계값 20 이내만 회색 판정
-    if abs(r - g) < 20 and abs(g - b) < 20 and abs(r - b) < 20:
-        avg = (r + g + b) // 3
-        if avg < 80:
-            return "⬛"
-        return "■"
-
-    # HSL 기반 색상 판별을 위한 Hue·Lightness 계산
-    max_c = max(r, g, b)
-    min_c = min(r, g, b)
-    diff = max_c - min_c
-    if diff == 0:
-        return "■"
-
-    # Lightness (0.0 ~ 1.0)
-    lightness = (max_c + min_c) / 510.0
-
-    # Hue (0 ~ 360)
-    if max_c == r:
-        hue = 60 * (((g - b) / diff) % 6)
-    elif max_c == g:
-        hue = 60 * (((b - r) / diff) + 2)
-    else:
-        hue = 60 * (((r - g) / diff) + 4)
-
-    is_light = lightness >= 0.65
-
-    # 진한 색 → 사각형 이모지, 연한 색 → hex 코드
-    if hue < 15 or hue >= 345:
-        return "#FFC0CB" if is_light else "🟥"
-    elif hue < 45:
-        return "#F4A460" if is_light else "🟧"
-    elif hue < 70:
-        return "#FFD700" if is_light else "🟨"
-    elif hue < 160:
-        return "#90EE90" if is_light else "🟩"
-    elif hue < 260:
-        return "#87CEEB" if is_light else "🟦"
-    elif hue < 310:
-        return "#9370DB" if is_light else "🟪"
-    else:
-        return "#FF69B4" if is_light else "🟥"
-
-
 def _postprocess(text: str) -> str:
     """변환된 Markdown을 정리한다."""
-    # XML/XHTML 선언 제거
+    # XML/XHTML 선언 제거 (hwp5html 출력 고유)
     text = re.sub(r'<\?xml[^?]*\?>', '', text)
     text = re.sub(
         r'^\s*xml version=["\'][^"\']*["\'] encoding=["\'][^"\']*["\']\??',
@@ -655,35 +602,6 @@ def _postprocess(text: str) -> str:
         '', text, flags=re.IGNORECASE,
     )
 
-    # 유효하지 않은 공백 문자 제거
-    text = text.replace('\xa0', ' ')
-
-    # --- 번호 기반 제목/소제목 헤딩 추가 ---
-    # "1.2.3 제목" → "#### 1.2.3 제목" (3단계)
-    # "1.2 제목" → "### 1.2 제목" (2단계)
-    # "1. 제목" → "## 1. 제목" (1단계)
-    # 테이블 행(|)과 이미 # 마크가 있는 줄은 제외
-    heading_lines = []
-    for line in text.split('\n'):
-        stripped = line.strip()
-        # 테이블 행이거나 이미 헤딩인 줄은 건너뛰기
-        if '|' in stripped or stripped.startswith('#'):
-            heading_lines.append(line)
-            continue
-        # 3단계: N.N.N 형식 (예: 1.2.3 또는 1.2.3.)
-        if re.match(r'^\d+\.\d+\.\d+\.?\s+\S', stripped):
-            heading_lines.append(f'#### {stripped}')
-        # 2단계: N.N 형식 (예: 1.2 또는 1.2.)
-        elif re.match(r'^\d+\.\d+\.?\s+\S', stripped):
-            heading_lines.append(f'### {stripped}')
-        # 1단계: N. 형식 (예: 1. 또는 1.)
-        elif re.match(r'^\d+\.\s+\S', stripped):
-            heading_lines.append(f'## {stripped}')
-        else:
-            heading_lines.append(line)
-    text = '\n'.join(heading_lines)
-
-    # 과도한 빈 줄 정리
-    text = re.sub(r'\n{3,}', '\n\n', text)
-
-    return text.strip()
+    # 공통 후처리: 헤딩 추가 + nbsp/빈줄 정리
+    text = postprocess_headings(text)
+    return postprocess_cleanup(text)
