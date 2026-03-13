@@ -5,7 +5,8 @@ from pathlib import Path
 from typing import List, Tuple
 from urllib.parse import quote
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Form, HTTPException, Request
+from fastapi.responses import JSONResponse
 from fastapi.responses import FileResponse, PlainTextResponse
 
 logger = logging.getLogger(__name__)
@@ -652,3 +653,33 @@ async def download_markdown(file_id: str):
             )
         },
     )
+
+
+# =============================================================================
+#  POST /upload-md — 임의 Markdown 저장 및 다운로드 URL 발급
+# =============================================================================
+@router.post(
+    "/upload-md",
+    summary="Markdown 내용을 저장하고 다운로드 URL 반환",
+    description=(
+        "LLM 분석 보고서 등 임의의 Markdown 내용을 서버에 저장하고 "
+        "다운로드 가능한 URL을 반환합니다.\n\n"
+        "- **content**: Markdown 텍스트 (form field)\n"
+        "- **filename**: 다운로드 시 표시할 파일명 (선택, 기본값: `report.md`)\n"
+        "- 저장된 파일은 24시간 후 자동 삭제됩니다."
+    ),
+    operation_id="uploadMarkdown",
+)
+async def upload_markdown(
+    content: str = Form(..., description="저장할 Markdown 텍스트"),
+    filename: str = Form("report.md", description="다운로드 시 사용할 파일명"),
+):
+    """Markdown 내용을 OUTPUT_DIR에 저장하고 download_url을 반환한다."""
+    if not content or not content.strip():
+        raise HTTPException(status_code=400, detail="content가 비어 있습니다.")
+    file_id = save_output_file(content, filename)
+    return JSONResponse({
+        "file_id": file_id,
+        "filename": filename,
+        "download_url": f"/api/v1/download/{file_id}",
+    })

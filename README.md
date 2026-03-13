@@ -108,6 +108,7 @@ docker compose up --build
 | POST | `/api/v1/convert` | HWP/HWPX → Markdown | 파일 / JSON | JSON `{results: [...]}` |
 | POST | `/api/v1/convert/raw` | HWP/HWPX → Markdown (텍스트) | 파일 / JSON | text/markdown |
 | POST | `/api/v1/convert/base64` | `/convert`와 동일 (별칭) | 파일 / JSON | JSON `{results: [...]}` |
+| POST | `/api/v1/upload-md` | 임의 Markdown 저장 → 다운로드 URL 발급 | form-data | JSON `{file_id, filename, download_url}` |
 | GET | `/api/v1/download/{file_id}` | 변환된 Markdown 다운로드 | — | text/markdown |
 
 > **모든 변환 엔드포인트**는 `multipart/form-data`(파일 업로드)와 `application/json`(Base64) **두 가지 방식 모두 지원**합니다.
@@ -185,15 +186,52 @@ print(result["markdown"])
 4. Request body에 JSON 입력 또는 파일 첨부
 5. "Execute" 클릭
 
+### Markdown 업로드 (POST /api/v1/upload-md)
+
+LLM이 생성한 분석 보고서 등 **임의의 Markdown 내용을 서버에 저장**하고 다운로드 URL을 받습니다.
+Flowise Step4(보고서 포맷팅)에서 LLM 분석 보고서를 저장할 때 사용합니다.
+
+```bash
+curl -X POST http://localhost:8000/api/v1/upload-md \
+  -F "content=# 분석 보고서\n\n내용..." \
+  -F "filename=OpenMaru_Report_2026-03-13.md"
+```
+
+응답:
+```json
+{
+  "file_id": "a1b2c3d4",
+  "filename": "OpenMaru_Report_2026-03-13.md",
+  "download_url": "/api/v1/download/a1b2c3d4"
+}
+```
+
+Python 예제:
+```python
+import requests
+
+resp = requests.post(
+    "http://localhost:8000/api/v1/upload-md",
+    data={
+        "content": "# 분석 보고서\n\n내용...",
+        "filename": "report.md",
+    },
+)
+data = resp.json()
+print(data["download_url"])  # /api/v1/download/a1b2c3d4
+```
+
+> 저장된 파일은 기본 **24시간** 후 자동 삭제됩니다 (`OUTPUT_TTL_SEC` 환경변수로 변경 가능).
+
 ### 다운로드
 
 ```bash
-# 변환 응답의 download_url 사용
+# 변환 응답 또는 upload-md 응답의 download_url 사용
 curl -O http://localhost:8000/api/v1/download/a1b2c3d4
 ```
 
-> `file_id`는 변환 응답의 `download_url`에 포함된 8자리 UUID입니다 (예: `a1b2c3d4`).
-> output 파일은 기본 **1시간** 후 자동 삭제됩니다 (`OUTPUT_TTL_SEC` 환경변수로 변경 가능).
+> `file_id`는 `/convert` 또는 `/upload-md` 응답의 `download_url`에 포함된 8자리 UUID입니다 (예: `a1b2c3d4`).
+> output 파일은 기본 **24시간** 후 자동 삭제됩니다 (`OUTPUT_TTL_SEC` 환경변수로 변경 가능).
 
 ### 응답 형식
 
@@ -209,6 +247,16 @@ curl -O http://localhost:8000/api/v1/download/a1b2c3d4
       "error": ""
     }
   ]
+}
+```
+
+#### POST /api/v1/upload-md (JSON)
+
+```json
+{
+  "file_id": "a1b2c3d4",
+  "filename": "OpenMaru_Report_2026-03-13.md",
+  "download_url": "/api/v1/download/a1b2c3d4"
 }
 ```
 
